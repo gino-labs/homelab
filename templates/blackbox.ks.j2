@@ -11,7 +11,7 @@ keyboard --vckeymap=us --xlayouts='us'
 lang en_US.UTF-8
 network --bootproto=dhcp --device=eno1
 network --bootproto=static --device=br0\
-    --ip=172.18.83.1 \
+    --ip=172.22.22.1 \
     --netmask=255.255.255.0 \
     --hostname=blackbox.home.arpa \
     --bridgeslaves=enp1s0,enp7s0,enp8s0 \
@@ -29,17 +29,23 @@ logvol /tmp --fstype=xfs --vgname=bb --name=tmp --grow --percent=3
 logvol /var/log --fstype=xfs --vgname=bb --name=log --grow --percent=5 
 logvol swap --fstype=swap --vgname=bb --name=swap --size=8192
 
-rootpw --iscrypted $6$fdkJXqP4ClBQPyhI$xYE6CodfD6ltHMFVzaGtKid3QOe6cIjl7fTzIKFCEctcc5EZWTFNCgUBZbgAFh6GHDQlJbVbGA/4ZMn3vbwFo0
+rootpw --iscrypted {{ rootpw }}
 selinux --enforcing
 skipx
 
 # repo --install (EPEL, Ookla speedtest)
-# sshkey
-# syspurpose
-# timesource
-# timezone
-# user
+sshkey --username=gino {{ ginokey }}
+sshkey --username=ansible {{ ansiblekey }}
+{% for pool in ntp_pools %}
+timesource --ntp-pool={{ pool }}
+{% endfor %}
+timezone America/Phoenix --utc
+user --name=gino --iscrypted --password={{ ginopw }}
+user --name=ansible
 zerombr
+
+# syspurpose --role="" --usage="" --sla=""
+# rhsm --organization="" --activation-key=""
 
 %packages
 @^minimal-environment
