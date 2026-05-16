@@ -19,3 +19,4 @@
 - Fail2ban
 - ClamAV
 - Nessus Essentials
+- Syslog
