@@ -1,0 +1,306 @@
+---
+- name: Rocky Router
+  hosts: all
+  become: true
+  vars:
+    internal_zone: "lan"
+    external_zone: "wan"
+    wan_interface: "eno1"
+    bridge_interface: "br0"
+    slave_interfaces:
+      - "enp1s0"
+      - "enp7s0"
+      - "enp8s0"
+    local_domain: "home.arpa"
+    dns_servers:
+      - "1.1.1.1"
+      - "1.0.0.1"
+      - "2606:4700:4700::1111"
+      - "2606:4700:4700::1001"
+    subnet_base: "172.22.22"
+    subnet_prefix: "24"
+  tasks:
+    - name: Download packages
+      tags: always
+      ansible.builtin.dnf:
+        name:
+          - firewalld
+          - NetworkManager
+          - dnsmasq
+        state: present
+      failed_when: false
+
+    - name: Add new zone {{ internal_zone }}
+      tags: firewall
+      ansible.posix.firewalld:
+        zone: "{{ internal_zone }}"
+        permanent: true
+        state: present
+      notify: Reload firewall
+
+    - name: Allow ssh access to zone {{ internal_zone }}
+      tags: firewall
+      ansible.posix.firewalld:
+        zone: "{{ internal_zone }}"
+        service: ssh
+        immediate: true
+        permanent: true
+        state: enabled
+      when: not ansible_check_mode
+
+    - name: Confiugre forward for {{ internal_zone }}
+      tags: firewall
+      ansible.posix.firewalld:
+        zone: "{{ internal_zone }}"
+        forward: true
+        immediate: true
+        permanent: true
+        state: enabled
+      when: not ansible_check_mode
+
+    - name: Allow DNS in zone {{ internal_zone }}
+      tags: firewall
+      ansible.posix.firewalld:
+        zone: "{{ internal_zone }}"
+        service: dns
+        immediate: true
+        permanent: true
+        state: enabled
+      when: not ansible_check_mode
+
+    - name: Allow DHCP in zone {{ internal_zone }}
+      tags: firewall
+      ansible.posix.firewalld:
+        zone: "{{ internal_zone }}"
+        service: dhcp
+        immediate: true
+        permanent: true
+        state: enabled
+      when: not ansible_check_mode
+
+    - name: Configure interface via firewalld for {{ internal_zone }}
+      tags:
+        - firewall
+        - networking
+      ansible.posix.firewalld:
+        zone: "{{ internal_zone }}"
+        interface: "{{ bridge_interface }}"
+        permanent: true
+        state: enabled
+      notify: Reload firewall
+      when: not ansible_check_mode
+
+    - name: Set up bridge interface (LAN facing)
+      tags: networking
+      community.general.nmcli:
+        zone: "{{ internal_zone }}"
+        conn_name: "{{ bridge_interface }}"
+        ifname: "{{ bridge_interface }}"
+        type: bridge
+        stp: false
+        method4: manual
+        method6: ignore
+        ip4: "{{ subnet_base }}.1/{{ subnet_prefix }}"
+        autoconnect: true
+        never_default4: true
+        dns4_search: ["home.arpa"]
+        state: present
+
+    - name: Set up bridge slave interfaces (LAN facing)
+      tags: networking
+      community.general.nmcli:
+        zone: ""
+        conn_name: "{{ bridge_interface }}-{{ item }}"
+        ifname: "{{ item }}"
+        type: bridge-slave
+        master: "{{ bridge_interface }}"
+        autoconnect: true
+        state: present
+      loop: "{{ slave_interfaces }}"
+
+    - name: Add new zone {{ external_zone }}
+      tags: firewall
+      ansible.posix.firewalld:
+        zone: "{{ external_zone }}"
+        permanent: true
+        state: present
+      notify: Reload firewall
+
+    - name: Configure target DROP for {{ external_zone }}
+      tags: firewall
+      ansible.posix.firewalld:
+        zone: "{{ external_zone }}"
+        target: DROP
+        permanent: true
+        state: enabled
+      when: not ansible_check_mode
+
+    - name: Configure NO forward for {{ external_zone }}
+      tags: firewall
+      ansible.posix.firewalld:
+        zone: "{{ external_zone }}"
+        forward: false
+        immediate: true
+        permanent: true
+        state: enabled
+      when: not ansible_check_mode
+
+    - name: Configure masquerade for {{ external_zone }}
+      tags: firewall
+      ansible.posix.firewalld:
+        zone: "{{ external_zone }}"
+        masquerade: true
+        immediate: true
+        permanent: true
+        state: enabled
+      when: not ansible_check_mode
+
+    - name: Configure icmp block for {{ external_zone }}
+      tags: firewall
+      ansible.posix.firewalld:
+        zone: "{{ external_zone }}"
+        icmp_block: echo-request
+        immediate: true
+        permanent: true
+        state: enabled
+      when: not ansible_check_mode
+
+    - name: Configure dhcpv6-client service for {{ external_zone }}
+      tags: firewall
+      ansible.posix.firewalld:
+        zone: "{{ external_zone }}"
+        service: dhcpv6-client
+        immediate: true
+        permanent: true
+        state: enabled
+      when: not ansible_check_mode
+
+    - name: Configure interface via firewalld for {{ external_zone }}
+      tags:
+        - firewall
+        - networking
+      ansible.posix.firewalld:
+        zone: "{{ external_zone }}"
+        interface: "{{ wan_interface }}"
+        permanent: true
+        state: enabled
+      notify: Reload firewall
+      when: not ansible_check_mode
+
+    - name: Set up external interface (WAN facing)
+      tags: networking
+      community.general.nmcli:
+        zone: "{{ external_zone }}"
+        ifname: "{{ wan_interface }}"
+        conn_name: "{{ wan_interface }}"
+        type: ethernet
+        method4: auto
+        method6: auto
+        dns4: ["127.0.0.1"]
+        dns4_ignore_auto: true
+        dns6: ["::1"]
+        dns6_ignore_auto: true
+        autoconnect: true
+        state: present
+
+    - name: Check existing firewalld policies
+      tags: firewall
+      ansible.builtin.command: firewall-cmd --get-policies
+      changed_when: false
+      register: fw_policies
+
+    - name: Add firewall policy
+      tags: firewall
+      ansible.builtin.command: firewall-cmd --permanent --new-policy={{ internal_zone }}-to-{{ external_zone }}
+      changed_when: true
+      when: (internal_zone ~ '-to-' ~ external_zone) not in (fw_policies.stdout | default(''))
+
+    - name: Check existing policy rules
+      tags: firewall
+      ansible.builtin.command: firewall-cmd --info-policy={{ internal_zone }}-to-{{ external_zone }}
+      changed_when: false
+      register: policy_info
+
+    - name: Set policy target to ACCEPT
+      tags: firewall
+      ansible.builtin.command: firewall-cmd --policy={{ internal_zone }}-to-{{ external_zone }} --set-target=ACCEPT --permanent
+      changed_when: true
+      when: "'target: ACCEPT' not in policy_info.stdout"
+
+    - name: Add ingress zone to policy
+      tags: firewall
+      ansible.builtin.command: firewall-cmd --policy={{ internal_zone }}-to-{{ external_zone }} --add-ingress-zone={{ internal_zone }} --permanent
+      changed_when: true
+      when: "('ingress-zones: ' ~ internal_zone) not in policy_info.stdout"
+
+    - name: Add egress zone to policy
+      tags: firewall
+      ansible.builtin.command: firewall-cmd --policy={{ internal_zone }}-to-{{ external_zone }} --add-egress-zone={{ external_zone }} --permanent
+      changed_when: true
+      when: "('egress-zones: ' ~ external_zone) not in policy_info.stdout"
+
+    - name: Reload firewalld
+      tags: firewall
+      ansible.builtin.command: firewall-cmd --reload
+      changed_when: true
+
+    - name: Copy dnsmasq configuration template
+      tags: dnsmasq
+      ansible.builtin.template:
+        src: templates/dnsmasq.conf.j2
+        dest: /etc/dnsmasq.d/local.conf
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Set up logrotate for dnsmasq
+      tags: dnsmasq
+      ansible.builtin.copy:
+        content: |
+          /var/log/dnsmasq.log {
+              daily
+              rotate 8
+              compress
+              missingok
+              notifempty
+          }
+        dest: /etc/logrotate.d/dnsmasq
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Enable ipv4 forwarding
+      tags: networking
+      ansible.posix.sysctl:
+        name: net.ipv4.ip_forward
+        value: "1"
+        state: present
+        sysctl_set: true
+        reload: true
+
+    - name: Restart NetworkManager
+      tags: networking
+      ansible.builtin.systemd:
+        name: NetworkManager
+        state: restarted
+        enabled: true
+
+    - name: Restart firewalld
+      tags: firewall
+      ansible.builtin.systemd:
+        name: firewalld
+        state: restarted
+        enabled: true
+
+    - name: Restart dnsmasq
+      tags: dnsmasq
+      ansible.builtin.systemd:
+        name: dnsmasq
+        state: restarted
+        enabled: true
+      when: not ansible_check_mode
+
+  handlers:
+    - name: Reload firewall
+      ansible.builtin.command: firewall-cmd --reload
+      changed_when: true
