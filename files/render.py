@@ -18,12 +18,12 @@ def render_template(j2_file: str, vars_file: str):
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
-    parser.add_argument("j2", help="Jinja2 file to render.")
-    parser.add_argument("vars", help="Vars yaml file to use for rendering data.")
+    parser.add_argument("--jinja-file", required=True, help="Jinja2 file to render.")
+    parser.add_argument("--vars-file", required=True, help="Yaml file containing vars for rendering data.")
     return parser
 
 if __name__ == "__main__":
     p = build_parser()
     args = p.parse_args()
 
-    render_template(args.j2, args.vars)
+    render_template(args.jinja_file, args.vars_file)
