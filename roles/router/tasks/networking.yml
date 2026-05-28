@@ -1,0 +1,50 @@
+---
+- name: Set up bridge interface (LAN facing)
+  community.general.nmcli:
+    zone: "{{ internal_zone }}"
+    conn_name: "{{ bridge_interface }}"
+    ifname: "{{ bridge_interface }}"
+    type: bridge
+    stp: false
+    method4: manual
+    method6: ignore
+    ip4: "{{ subnet_base }}.1/{{ subnet_prefix }}"
+    autoconnect: true
+    never_default4: true
+    dns4_search: ["home.arpa"]
+    state: present
+
+- name: Set up bridge slave interfaces (LAN facing)
+  community.general.nmcli:
+    zone: ""
+    conn_name: "{{ bridge_interface }}-{{ item }}"
+    ifname: "{{ item }}"
+    type: bridge-slave
+    master: "{{ bridge_interface }}"
+    autoconnect: true
+    state: present
+  loop: "{{ slave_interfaces }}"
+
+- name: Set up external interface (WAN facing)
+  community.general.nmcli:
+    zone: "{{ external_zone }}"
+    ifname: "{{ wan_interface }}"
+    conn_name: "{{ wan_interface }}"
+    type: ethernet
+    method4: auto
+    method6: auto
+    dns4: ["127.0.0.1"]
+    dns4_ignore_auto: true
+    dns6: ["::1"]
+    dns6_ignore_auto: true
+    autoconnect: true
+    state: present
+
+- name: Enable ipv4 forwarding
+  tags: networking
+  ansible.posix.sysctl:
+    name: net.ipv4.ip_forward
+    value: "1"
+    state: present
+    sysctl_set: true
+    reload: true

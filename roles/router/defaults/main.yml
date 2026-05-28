@@ -1,0 +1,17 @@
+---
+internal_zone: "lan"
+external_zone: "wan"
+wan_interface: "eno1"
+bridge_interface: "br0"
+slave_interfaces:
+  - "enp1s0"
+  - "enp7s0"
+  - "enp8s0"
+local_domain: "home.arpa"
+dns_servers:
+  - "1.1.1.1"
+  - "1.0.0.1"
+  - "2606:4700:4700::1111"
+  - "2606:4700:4700::1001"
+subnet_base: "172.22.22"
+subnet_prefix: "24"

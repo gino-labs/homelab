@@ -1,0 +1,138 @@
+---
+- name: Add new zone {{ internal_zone }}
+  ansible.posix.firewalld:
+    zone: "{{ internal_zone }}"
+    permanent: true
+    state: present
+  notify: Reload firewall
+
+- name: Allow ssh access to zone {{ internal_zone }}
+  ansible.posix.firewalld:
+    zone: "{{ internal_zone }}"
+    service: ssh
+    immediate: true
+    permanent: true
+    state: enabled
+
+- name: Confiugre forward for {{ internal_zone }}
+  ansible.posix.firewalld:
+    zone: "{{ internal_zone }}"
+    forward: true
+    immediate: true
+    permanent: true
+    state: enabled
+
+- name: Allow DNS in zone {{ internal_zone }}
+  ansible.posix.firewalld:
+    zone: "{{ internal_zone }}"
+    service: dns
+    immediate: true
+    permanent: true
+    state: enabled
+
+- name: Allow DHCP in zone {{ internal_zone }}
+  ansible.posix.firewalld:
+    zone: "{{ internal_zone }}"
+    service: dhcp
+    immediate: true
+    permanent: true
+    state: enabled
+
+- name: Configure interface via firewalld for {{ internal_zone }}
+  ansible.posix.firewalld:
+    zone: "{{ internal_zone }}"
+    interface: "{{ bridge_interface }}"
+    permanent: true
+    state: enabled
+  notify: Reload firewall
+
+- name: Add new zone {{ external_zone }}
+  ansible.posix.firewalld:
+    zone: "{{ external_zone }}"
+    permanent: true
+    state: present
+  notify: Reload firewall
+
+- name: Configure target DROP for {{ external_zone }}
+  ansible.posix.firewalld:
+    zone: "{{ external_zone }}"
+    target: DROP
+    permanent: true
+    state: enabled
+
+- name: Configure NO forward for {{ external_zone }}
+  ansible.posix.firewalld:
+    zone: "{{ external_zone }}"
+    forward: false
+    immediate: true
+    permanent: true
+    state: enabled
+
+- name: Configure masquerade for {{ external_zone }}
+  ansible.posix.firewalld:
+    zone: "{{ external_zone }}"
+    masquerade: true
+    immediate: true
+    permanent: true
+    state: enabled
+
+- name: Configure icmp block for {{ external_zone }}
+  ansible.posix.firewalld:
+    zone: "{{ external_zone }}"
+    icmp_block: echo-request
+    immediate: true
+    permanent: true
+    state: enabled
+
+- name: Configure dhcpv6-client service for {{ external_zone }}
+  ansible.posix.firewalld:
+    zone: "{{ external_zone }}"
+    service: dhcpv6-client
+    immediate: true
+    permanent: true
+    state: enabled
+
+- name: Configure interface via firewalld for {{ external_zone }}
+  ansible.posix.firewalld:
+    zone: "{{ external_zone }}"
+    interface: "{{ wan_interface }}"
+    permanent: true
+    state: enabled
+  notify: Reload firewall
+
+
+- name: Check existing firewalld policies
+  ansible.builtin.command: firewall-cmd --get-policies
+  changed_when: false
+  register: fw_policies
+
+- name: Check for firewall policy
+  when: (internal_zone ~ '-to-' ~ external_zone) not in (fw_policies.stdout | default(''))
+  block:
+    - name: Add firewall policy
+      ansible.builtin.command: firewall-cmd --permanent --new-policy={{ internal_zone }}-to-{{ external_zone }}
+      changed_when: true
+
+    - name: Reload firewall
+      ansible.builtin.command: firewall-cmd --reload
+      changed_when: true
+
+- name: Check existing policy rules
+  ansible.builtin.command: firewall-cmd --info-policy={{ internal_zone }}-to-{{ external_zone }}
+  changed_when: false
+  register: policy_info
+
+- name: Set policy target to ACCEPT
+  ansible.builtin.command: firewall-cmd --policy={{ internal_zone }}-to-{{ external_zone }} --set-target=ACCEPT --permanent
+  changed_when: true
+  when: "'target: ACCEPT' not in policy_info.stdout"
+
+- name: Add ingress zone to policy
+  ansible.builtin.command: firewall-cmd --policy={{ internal_zone }}-to-{{ external_zone }} --add-ingress-zone={{ internal_zone }} --permanent
+  changed_when: true
+  when: "('ingress-zones: ' ~ internal_zone) not in policy_info.stdout"
+
+- name: Add egress zone to policy
+  ansible.builtin.command: firewall-cmd --policy={{ internal_zone }}-to-{{ external_zone }} --add-egress-zone={{ external_zone }} --permanent
+  changed_when: true
+  when: "('egress-zones: ' ~ external_zone) not in policy_info.stdout"

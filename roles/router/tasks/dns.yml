@@ -1,0 +1,13 @@
+---
+- name: Download packages
+  ansible.builtin.dnf:
+    name: dnsmasq
+    state: present
+
+- name: Copy dnsmasq configuration template for dns
+  ansible.builtin.template:
+    src: templates/dns.conf.j2
+    dest: /etc/dnsmasq.d/dns.conf
+    owner: root
+    group: root
+    mode: "0644"

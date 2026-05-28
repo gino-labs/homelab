@@ -1,0 +1,16 @@
+domain={{ local_domain }}
+local=/{{ local_domain }}/
+expand-hosts
+
+{% for server in dns_servers %}
+server={{ server }}
+{% endfor %}
+
+no-resolv
+strict-order
+domain-needed
+bogus-priv
+cache-size=10000
+
+log-async=100
+log-queries

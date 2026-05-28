@@ -1,0 +1,17 @@
+listen-address={{ subnet_base }}.1
+interface={{ bridge_interface }}
+bind-interfaces
+
+dhcp-authoritative
+dhcp-range={{ subnet_base }}.9,{{ subnet_base }}.254,30d
+dhcp-leasefile=/var/lib/dnsmasq/dhcp.leases
+
+dhcp-option=option:router,{{ subnet_base }}.1
+dhcp-option=option:dns-server,{{ subnet_base }}.1
+dhcp-option=option:domain-name,{{ local_domain }}
+dhcp-option=option:domain-search,{{ local_domain }}
+
+log-dhcp
+
+
+
